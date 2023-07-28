@@ -8,4 +8,7 @@ indexer.toml
 
 # IDE files
 .vscode/
-# migrations/
+migrations/
+
+# sqlx
+**/.sqlx/

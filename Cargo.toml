@@ -2,6 +2,7 @@
 members = [
     "native",
     "service",
+    "tap"
     # "common",
 ]
 

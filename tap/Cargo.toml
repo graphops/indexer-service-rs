@@ -1,0 +1,15 @@
+[package]
+name = "tap"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1.0.72"
+ethereum-types = "0.14.1"
+log = "0.4.19"
+serde_json = "1.0.104"
+sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal"] }
+tap_core = "0.2.0"
+thiserror = "1.0.44"
+tokio = { version = "1.29.1", features = ["rt"] }
