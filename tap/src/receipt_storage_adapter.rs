@@ -67,6 +67,17 @@ impl tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter for Rece
         &self,
         timestamp_range_ns: R,
     ) -> Result<Vec<(u64, ReceivedReceipt)>, Self::AdapterError> {
+        let fut = sqlx::query!(
+            r#"
+                SELECT id, signed_receipt
+                FROM scalar_tap_receipts
+                WHERE allocation_id = $1 AND timestamp_ns >= $2 AND timestamp_ns <= $3
+            "#,
+            self.allocation_id.to_string(),
+            BigDecimal::from(timestamp_range_ns.start_bound()),
+            BigDecimal::from(timestamp_range_ns.end_bound())
+        ).fetch_all(&self.pgpool);
+
         let receipt_storage =
             self.receipt_storage
                 .read()
