@@ -5194,6 +5194,7 @@ name = "tap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "ethereum-types",
  "log",
  "serde_json",

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use log::debug;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -6,10 +7,9 @@ use anyhow::Result;
 use ethereum_types::Address;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
-use tap_core;
+
 use tap_core::tap_manager::SignedRAV;
 use thiserror::Error;
-use tokio;
 
 pub struct RAVStorageAdapter {
     pgpool: PgPool,
@@ -24,11 +24,12 @@ pub enum AdapterError {
     AdapterError { error: String },
 }
 
+#[async_trait]
 impl tap_core::adapters::rav_storage_adapter::RAVStorageAdapter for RAVStorageAdapter {
     type AdapterError = AdapterError;
 
-    fn update_last_rav(&mut self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
-        let fut = sqlx::query!(
+    async fn update_last_rav(&self, rav: SignedRAV) -> Result<(), Self::AdapterError> {
+        let _fut = sqlx::query!(
             r#"
                 INSERT INTO scalar_tap_latest_rav (allocation_id, latest_rav)
                 VALUES ($1, $2)
@@ -40,27 +41,21 @@ impl tap_core::adapters::rav_storage_adapter::RAVStorageAdapter for RAVStorageAd
                 error: e.to_string()
             })?
         )
-        .execute(&self.pgpool);
-
-        // TODO: Make tap_core async
-        tokio::runtime::Runtime::new()
-            .map_err(|e| AdapterError::AdapterError {
-                error: e.to_string(),
-            })?
-            .block_on(fut)
-            .map_err(|e| AdapterError::AdapterError {
-                error: e.to_string(),
-            })?;
+        .execute(&self.pgpool)
+        .await
+        .map_err(|e| AdapterError::AdapterError {
+            error: e.to_string(),
+        })?;
 
         Ok(())
     }
-    fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
+    async fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
         Ok(self.local_rav_storage.read().unwrap().clone())
     }
 }
 
 impl RAVStorageAdapter {
-    async fn retrieve_last_rav(&self) -> Result<()> {
+    pub async fn retrieve_last_rav(&self) -> Result<()> {
         let latest_rav = sqlx::query!(
             r#"
                 SELECT latest_rav
@@ -103,7 +98,7 @@ impl RAVStorageAdapter {
         };
 
         // Try to retrieve latest rav from database
-        Self::retrieve_last_rav(&rav_storage_adapter);
+        Self::retrieve_last_rav(&rav_storage_adapter).await?;
 
         Ok(rav_storage_adapter)
     }

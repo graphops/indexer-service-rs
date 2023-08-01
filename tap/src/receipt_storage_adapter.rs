@@ -2,131 +2,152 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashMap,
-    ops::RangeBounds,
-    sync::{Arc, RwLock}, num::TryFromIntError, str::Bytes, vec,
+    num::TryFromIntError,
+    ops::{Bound, RangeBounds},
 };
 
+use async_trait::async_trait;
 use ethereum_types::Address;
-use sqlx::PgPool;
+use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
 use tap_core::tap_receipt::ReceivedReceipt;
-use sqlx::types::BigDecimal;
-
+use thiserror::Error;
 
 pub struct ReceiptStorageAdapter {
     pgpool: PgPool,
-    unique_id: u64,
     allocation_id: Address,
 }
 
-use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AdapterError {
     #[error("something went wrong: {error}")]
     AdapterError { error: String },
 }
 
+impl From<TryFromIntError> for AdapterError {
+    fn from(error: TryFromIntError) -> Self {
+        AdapterError::AdapterError {
+            error: error.to_string(),
+        }
+    }
+}
+impl From<sqlx::Error> for AdapterError {
+    fn from(error: sqlx::Error) -> Self {
+        AdapterError::AdapterError {
+            error: error.to_string(),
+        }
+    }
+}
+impl From<serde_json::Error> for AdapterError {
+    fn from(error: serde_json::Error) -> Self {
+        AdapterError::AdapterError {
+            error: error.to_string(),
+        }
+    }
+}
+
+// convert Bound<u64> to Bound<BigDecimal>
+fn u64_bound_to_bigdecimal_bound(bound: Bound<&u64>) -> Bound<BigDecimal> {
+    match bound {
+        Bound::Included(start) => Bound::Included(BigDecimal::from(*start)),
+        Bound::Excluded(start) => Bound::Excluded(BigDecimal::from(*start)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+// convert RangeBounds<u64> to PgRange<BigDecimal>
+fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> {
+    PgRange::<BigDecimal>::from((
+        u64_bound_to_bigdecimal_bound(range.start_bound()),
+        u64_bound_to_bigdecimal_bound(range.end_bound()),
+    ))
+}
+
+#[async_trait]
 impl tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter for ReceiptStorageAdapter {
     type AdapterError = AdapterError;
-    fn store_receipt(&mut self, receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
+
+    async fn store_receipt(&self, receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
         let signed_receipt = receipt.signed_receipt();
 
-        let fut = sqlx::query!(
+        let record = sqlx::query!(
             r#"
-                INSERT INTO scalar_tap_receipts (signature, allocation_id, timestamp_ns, signed_receipt)
+                INSERT INTO scalar_tap_receipts (signature, allocation_id, timestamp_ns, received_receipt)
                 VALUES ($1, $2, $3, $4)
                 RETURNING id
             "#,
             signed_receipt.signature.to_string(),
             self.allocation_id.to_string(),
             BigDecimal::from(signed_receipt.message.timestamp_ns),
-            serde_json::to_value(signed_receipt).map_err(|e| AdapterError::AdapterError {
-                error: e.to_string(),
-            })?
-        ).fetch_one(&self.pgpool);
-
-        // TODO: Make tap_core async
-        let id = tokio::runtime::Runtime::new()
-            .map_err(|e| AdapterError::AdapterError {
-                error: e.to_string(),
-            })?
-            .block_on(fut)
-            .map_err(|e| AdapterError::AdapterError {
-                error: e.to_string(),
-            })?
-            .id;
+            serde_json::to_value(receipt)?
+        ).fetch_one(&self.pgpool).await?;
 
         // id is BIGSERIAL, so it should be safe to cast to u64.
-        let id: u64 = id.try_into().map_err(|e: TryFromIntError| AdapterError::AdapterError {
-            error: e.to_string(),
-        })?;
+        let id: u64 = record.id.try_into()?;
         Ok(id)
     }
 
-    fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64>>(
+    async fn retrieve_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
         &self,
         timestamp_range_ns: R,
     ) -> Result<Vec<(u64, ReceivedReceipt)>, Self::AdapterError> {
-        let fut = sqlx::query!(
+        let records = sqlx::query!(
             r#"
-                SELECT id, signed_receipt
+                SELECT id, received_receipt
                 FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND timestamp_ns >= $2 AND timestamp_ns <= $3
+                WHERE allocation_id = $1 AND $2::numrange @> timestamp_ns
             "#,
             self.allocation_id.to_string(),
-            BigDecimal::from(timestamp_range_ns.start_bound()),
-            BigDecimal::from(timestamp_range_ns.end_bound())
-        ).fetch_all(&self.pgpool);
+            rangebounds_to_pgrange(timestamp_range_ns),
+        )
+        .fetch_all(&self.pgpool)
+        .await?;
 
-        let receipt_storage =
-            self.receipt_storage
-                .read()
-                .map_err(|e| Self::AdapterError::AdapterError {
-                    error: e.to_string(),
-                })?;
-        Ok(receipt_storage
-            .iter()
-            .filter(|(_, rx_receipt)| {
-                timestamp_range_ns.contains(&rx_receipt.signed_receipt.message.timestamp_ns)
+        records
+            .into_iter()
+            .map(|record| {
+                let id: u64 = record.id.try_into()?;
+                let signed_receipt: ReceivedReceipt =
+                    serde_json::from_value(record.received_receipt)?;
+                Ok((id, signed_receipt))
             })
-            .map(|(&id, rx_receipt)| (id, rx_receipt.clone()))
-            .collect())
+            .collect()
     }
-    fn update_receipt_by_id(
-        &mut self,
+
+    async fn update_receipt_by_id(
+        &self,
         receipt_id: u64,
         receipt: ReceivedReceipt,
     ) -> Result<(), Self::AdapterError> {
-        let mut receipt_storage =
-            self.receipt_storage
-                .write()
-                .map_err(|e| Self::AdapterError::AdapterError {
-                    error: e.to_string(),
-                })?;
+        let _signed_receipt = receipt.signed_receipt();
 
-        if !receipt_storage.contains_key(&receipt_id) {
-            return Err(AdapterErrorMock::AdapterError {
-                error: "Invalid receipt_id".to_owned(),
-            });
-        };
+        let _record = sqlx::query!(
+            r#"
+                UPDATE scalar_tap_receipts
+                SET received_receipt = $1
+                WHERE id = $2
+            "#,
+            serde_json::to_value(receipt)?,
+            TryInto::<i64>::try_into(receipt_id)?
+        )
+        .fetch_one(&self.pgpool)
+        .await?;
 
-        receipt_storage.insert(receipt_id, receipt);
-        self.unique_id += 1;
         Ok(())
     }
-    fn remove_receipts_in_timestamp_range<R: RangeBounds<u64>>(
-        &mut self,
+
+    async fn remove_receipts_in_timestamp_range<R: RangeBounds<u64> + Send>(
+        &self,
         timestamp_ns: R,
     ) -> Result<(), Self::AdapterError> {
-        let mut receipt_storage =
-            self.receipt_storage
-                .write()
-                .map_err(|e| Self::AdapterError::AdapterError {
-                    error: e.to_string(),
-                })?;
-        receipt_storage.retain(|_, rx_receipt| {
-            !timestamp_ns.contains(&rx_receipt.signed_receipt.message.timestamp_ns)
-        });
+        sqlx::query!(
+            r#"
+                DELETE FROM scalar_tap_receipts
+                WHERE $1::numrange @> timestamp_ns
+            "#,
+            rangebounds_to_pgrange(timestamp_ns),
+        )
+        .execute(&self.pgpool)
+        .await?;
         Ok(())
     }
 }
