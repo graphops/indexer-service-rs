@@ -14,3 +14,7 @@ sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal
 tap_core = "0.3.0"
 thiserror = "1.0.44"
 tokio = { version = "1.29.1", features = ["rt"] }
+
+[dev-dependencies]
+ethers-signers = "2.0.8"
+rstest = "0.18.1"

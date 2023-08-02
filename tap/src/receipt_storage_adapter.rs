@@ -9,6 +9,7 @@ use std::{
 use async_trait::async_trait;
 use ethereum_types::Address;
 use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
+use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait;
 use tap_core::tap_receipt::ReceivedReceipt;
 use thiserror::Error;
 
@@ -63,7 +64,7 @@ fn rangebounds_to_pgrange<R: RangeBounds<u64>>(range: R) -> PgRange<BigDecimal> 
 }
 
 #[async_trait]
-impl tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter for ReceiptStorageAdapter {
+impl ReceiptStorageAdapterTrait for ReceiptStorageAdapter {
     type AdapterError = AdapterError;
 
     async fn store_receipt(&self, receipt: ReceivedReceipt) -> Result<u64, Self::AdapterError> {
@@ -151,3 +152,15 @@ impl tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter for Rece
         Ok(())
     }
 }
+
+impl ReceiptStorageAdapter {
+    pub fn new(pgpool: PgPool, allocation_id: Address) -> Self {
+        Self {
+            pgpool,
+            allocation_id,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {}

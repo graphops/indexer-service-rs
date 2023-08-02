@@ -3965,6 +3965,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "436b050e76ed2903236f032a59761c1eb99e1b0aead2c257922771dab1fc8c78"
 
 [[package]]
+name = "relative-path"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bf2521270932c3c7bed1a59151222bd7643c79310f2916f01925e1e16255698"
+
+[[package]]
 name = "rend"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5046,7 +5052,9 @@ dependencies = [
  "anyhow",
  "async-trait",
  "ethereum-types",
+ "ethers-signers",
  "log",
+ "rstest 0.18.1",
  "serde_json",
  "sqlx",
  "tap_core",
