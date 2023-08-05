@@ -57,6 +57,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
 }
 
 impl RAVStorageAdapter {
+    /// Static version of `retrieve_last_rav` that can be used by a `tokio::spawn`ed task.
     async fn retrieve_last_rav_static(
         pgpool: PgPool,
         allocation_id: Address,
@@ -91,6 +92,7 @@ impl RAVStorageAdapter {
         .await
     }
 
+    /// This function is meant to be spawned as a task that listens for new RAV notifications from the database.
     async fn rav_notifications_watcher(
         pgpool: PgPool,
         allocation_id: Address,
@@ -135,45 +137,13 @@ impl RAVStorageAdapter {
 
 #[cfg(test)]
 mod test {
-    use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
-    use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
-    use tap_core::{
-        eip_712_signed_message::EIP712SignedMessage,
-        receipt_aggregate_voucher::ReceiptAggregateVoucher,
-    };
-
-    use super::*;
     use std::str::FromStr;
 
-    /// Fixture to generate a wallet and address
-    fn keys() -> (LocalWallet, Address) {
-        let wallet: LocalWallet = MnemonicBuilder::<English>::default()
-         .phrase("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-         .build()
-         .unwrap();
-        let address = wallet.address();
-        (wallet, address)
-    }
+    use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 
-    /// Fixture to generate a RAV using the wallet from `keys()`
-    async fn create_rav(
-        allocation_id: Address,
-        timestamp_ns: u64,
-        value_aggregate: u128,
-    ) -> SignedRAV {
-        let (wallet, _) = keys();
+    use crate::test_utils::create_rav;
 
-        EIP712SignedMessage::new(
-            ReceiptAggregateVoucher {
-                allocation_id,
-                timestamp_ns,
-                value_aggregate,
-            },
-            &wallet,
-        )
-        .await
-        .unwrap()
-    }
+    use super::*;
 
     #[sqlx::test]
     async fn update_and_retrieve_rav(pool: PgPool) {
