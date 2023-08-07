@@ -4548,7 +4548,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "sqlx",
- "tap_core",
+ "tap 0.1.0",
  "test-log",
  "thiserror",
  "tokio",

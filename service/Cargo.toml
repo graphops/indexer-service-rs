@@ -54,9 +54,9 @@ metrics-exporter-prometheus = "0.11.0"
 prometheus = "0.13.3"
 hex = "0.4.3"
 bs58 = "0.5.0"
-tap_core = "0.3.0"
 ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal", "time"] }
+tap = { version = "0.1.0", path = "../tap" }
 
 [dev-dependencies]
 faux = "0.1.10"
