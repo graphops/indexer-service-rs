@@ -7,7 +7,6 @@ use anyhow::Result;
 use ethereum_types::Address;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
-
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 use tap_core::tap_manager::SignedRAV;
 use thiserror::Error;

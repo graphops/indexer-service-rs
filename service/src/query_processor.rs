@@ -5,7 +5,7 @@ use ethers_core::types::{Signature, U256};
 use log::error;
 use native::attestation::AttestationSigner;
 use serde::{Deserialize, Serialize};
-use tap_core::tap_manager::SignedReceipt;
+use tap::core::tap_manager::SignedReceipt;
 
 use crate::attestation_signers::AttestationSigners;
 use crate::common::types::SubgraphDeploymentID;

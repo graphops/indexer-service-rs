@@ -8,10 +8,10 @@ use std::{
 
 use async_trait::async_trait;
 use ethereum_types::Address;
-
 use sqlx::PgPool;
 use tap_core::adapters::receipt_checks_adapter::ReceiptChecksAdapter as ReceiptChecksAdapterTrait;
 use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt};
+use thiserror::Error;
 
 pub struct ReceiptChecksAdapter {
     pgpool: PgPool,
@@ -36,9 +36,21 @@ impl ReceiptChecksAdapter {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum AdapterError {
+    #[error("something went wrong: {error}")]
+    AdapterError { error: String },
+}
+
 #[async_trait]
 impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
-    async fn is_unique(&self, receipt: &EIP712SignedMessage<Receipt>, receipt_id: u64) -> bool {
+    type AdapterError = AdapterError;
+
+    async fn is_unique(
+        &self,
+        receipt: &EIP712SignedMessage<Receipt>,
+        receipt_id: u64,
+    ) -> Result<bool, Self::AdapterError> {
         // TODO: Proper error handling - requires changes in TAP Core
         let record = sqlx::query!(
             r#"
@@ -47,37 +59,63 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
                 WHERE id != $1 and signature = $2
                 LIMIT 1
             "#,
-            TryInto::<i64>::try_into(receipt_id).unwrap(),
+            TryInto::<i64>::try_into(receipt_id).map_err(|e| AdapterError::AdapterError {
+                error: e.to_string(),
+            })?,
             receipt.signature.to_string()
         )
         .fetch_optional(&self.pgpool)
         .await
-        .unwrap();
+        .map_err(|e| AdapterError::AdapterError {
+            error: e.to_string(),
+        })?;
 
-        record.is_none()
+        Ok(record.is_none())
     }
 
-    async fn is_valid_allocation_id(&self, allocation_id: Address) -> bool {
+    async fn is_valid_allocation_id(
+        &self,
+        allocation_id: Address,
+    ) -> Result<bool, Self::AdapterError> {
         // TODO: Proper error handling - requires changes in TAP Core
-        let allocation_ids = self.allocation_ids.read().unwrap();
-        allocation_ids.contains(&allocation_id)
+        let allocation_ids =
+            self.allocation_ids
+                .read()
+                .map_err(|e| AdapterError::AdapterError {
+                    error: e.to_string(),
+                })?;
+        Ok(allocation_ids.contains(&allocation_id))
     }
 
-    async fn is_valid_value(&self, value: u128, query_id: u64) -> bool {
+    async fn is_valid_value(&self, value: u128, query_id: u64) -> Result<bool, Self::AdapterError> {
         // TODO: Proper error handling - requires changes in TAP Core
-        let query_appraisals = self.query_appraisals.read().unwrap();
-        let appraised_value = query_appraisals.get(&query_id).unwrap();
+        let query_appraisals =
+            self.query_appraisals
+                .read()
+                .map_err(|e| AdapterError::AdapterError {
+                    error: e.to_string(),
+                })?;
+        let appraised_value =
+            query_appraisals
+                .get(&query_id)
+                .ok_or_else(|| AdapterError::AdapterError {
+                    error: "No appraised value found for query".to_string(),
+                })?;
 
         if value != *appraised_value {
-            return false;
+            return Ok(false);
         }
-        true
+        Ok(true)
     }
 
-    async fn is_valid_gateway_id(&self, gateway_id: Address) -> bool {
-        // TODO: Proper error handling - requires changes in TAP Core
-        let gateway_ids = self.gateway_ids.read().unwrap();
-        gateway_ids.contains(&gateway_id)
+    async fn is_valid_gateway_id(&self, gateway_id: Address) -> Result<bool, Self::AdapterError> {
+        let gateway_ids = self
+            .gateway_ids
+            .read()
+            .map_err(|e| AdapterError::AdapterError {
+                error: e.to_string(),
+            })?;
+        Ok(gateway_ids.contains(&gateway_id))
     }
 }
 
@@ -124,11 +162,10 @@ mod test {
                 .await
                 .unwrap();
 
-            assert!(
-                receipt_checks_adapter
-                    .is_unique(&received_receipt.signed_receipt(), receipt_id)
-                    .await
-            );
+            assert!(receipt_checks_adapter
+                .is_unique(&received_receipt.signed_receipt(), receipt_id)
+                .await
+                .unwrap());
         }
 
         // Insert a duplicate receipt
@@ -140,7 +177,8 @@ mod test {
         assert!(
             !(receipt_checks_adapter
                 .is_unique(&received_receipt.signed_receipt(), receipt_id)
-                .await)
+                .await
+                .unwrap())
         );
     }
 }

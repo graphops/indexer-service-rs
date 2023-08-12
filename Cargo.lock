@@ -5099,9 +5099,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tap_core"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8237144bdf78c888865cfa1b0ba37f9ca65252d5dd6b83a7e2d75ad47c202058"
+checksum = "113eca565bf68fb8b80354ba70b81c6df7ff9401e92df8f38499a4382c9ffc0b"
 dependencies = [
  "anyhow",
  "async-trait",
