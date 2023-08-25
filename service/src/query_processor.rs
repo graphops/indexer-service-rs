@@ -1,6 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use ethereum_types::Address;
 use ethers_core::types::{Signature, U256};
 use log::error;
 use native::attestation::AttestationSigner;
@@ -105,7 +106,8 @@ impl QueryProcessor {
         let parsed_receipt: SignedReceipt = serde_json::from_str(&receipt)
             .map_err(|e| QueryError::Other(anyhow::Error::from(e)))?;
 
-        let allocation_id = parsed_receipt.message.allocation_id;
+        // Conversion from alloy_primitives::Address to ethereum_types::Address
+        let allocation_id = Address::from_slice(parsed_receipt.message.allocation_id.as_slice());
 
         // TODO: Handle the TAP receipt
 

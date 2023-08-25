@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 use log::debug;
 use std::sync::Arc;
-use std::sync::RwLock;
 
+use alloy_primitives::Address;
 use anyhow::Result;
-use ethereum_types::Address;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use tap_core::adapters::rav_storage_adapter::RAVStorageAdapter as RAVStorageAdapterTrait;
 use tap_core::tap_manager::SignedRAV;
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 pub struct RAVStorageAdapter {
     pgpool: PgPool,
@@ -51,7 +51,7 @@ impl RAVStorageAdapterTrait for RAVStorageAdapter {
         Ok(())
     }
     async fn last_rav(&self) -> Result<Option<SignedRAV>, Self::AdapterError> {
-        Ok(self.local_rav_storage.read().unwrap().clone())
+        Ok(self.local_rav_storage.read().await.clone())
     }
 }
 
@@ -76,7 +76,7 @@ impl RAVStorageAdapter {
 
         if let Some(latest_rav) = latest_rav {
             let latest_rav: SignedRAV = serde_json::from_value(latest_rav)?;
-            local_rav_storage.write().unwrap().replace(latest_rav);
+            local_rav_storage.write().await.replace(latest_rav);
         }
 
         Ok(())

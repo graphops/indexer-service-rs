@@ -6,8 +6,8 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+use alloy_primitives::Address;
 use async_trait::async_trait;
-use ethereum_types::Address;
 use sqlx::{postgres::types::PgRange, types::BigDecimal, PgPool};
 use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait;
 use tap_core::tap_receipt::ReceivedReceipt;

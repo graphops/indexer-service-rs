@@ -46,6 +46,7 @@ mod graph_node;
 mod metrics;
 mod query_processor;
 mod server;
+mod tap_manager;
 mod util;
 
 #[cfg(test)]

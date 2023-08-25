@@ -57,6 +57,9 @@ bs58 = "0.5.0"
 ethereum-types = "0.14.1"
 sqlx = { version = "0.7.1", features = ["postgres", "runtime-tokio", "bigdecimal", "rust_decimal", "time"] }
 tap = { version = "0.1.0", path = "../tap" }
+alloy-primitives = "0.3.3"
+alloy-sol-types = "0.3.2"
+sqlx = "0.7.1"
 
 [dev-dependencies]
 faux = "0.1.10"

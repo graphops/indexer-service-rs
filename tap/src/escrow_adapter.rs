@@ -1,13 +1,11 @@
 /// TODO: Implement the escrow adapter. This is only a basic mock implementation.
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
+use alloy_primitives::Address;
 use async_trait::async_trait;
-use ethereum_types::Address;
 use log::warn;
 use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
+use tokio::sync::RwLock;
 
 pub struct EscrowAdapter {
     _gateway_escrow_storage: Arc<RwLock<HashMap<Address, u128>>>,

@@ -1,4 +1,5 @@
-use ethereum_types::Address;
+use alloy_primitives::Address;
+use alloy_sol_types::{eip712_domain, Eip712Domain};
 use ethers_signers::{coins_bip39::English, LocalWallet, MnemonicBuilder, Signer};
 use tap_core::receipt_aggregate_voucher::ReceiptAggregateVoucher;
 use tap_core::tap_manager::SignedRAV;
@@ -12,7 +13,17 @@ pub fn keys() -> (LocalWallet, Address) {
         .build()
         .unwrap();
     let address = wallet.address();
-    (wallet, address)
+
+    (wallet, Address::from_slice(address.as_bytes()))
+}
+
+pub fn domain() -> Eip712Domain {
+    eip712_domain! {
+        name: "TAP",
+        version: "1",
+        chain_id: 1,
+        verifying_contract: Address::from([0x11u8; 20]),
+    }
 }
 
 /// Fixture to generate a signed receipt using the wallet from `keys()`
@@ -25,7 +36,9 @@ pub async fn create_received_receipt(
     query_id: u64,
 ) -> ReceivedReceipt {
     let (wallet, _) = keys();
+
     let receipt = EIP712SignedMessage::new(
+        &domain(),
         Receipt {
             allocation_id,
             nonce,
@@ -49,6 +62,7 @@ pub async fn create_rav(
     let (wallet, _) = keys();
 
     EIP712SignedMessage::new(
+        &domain(),
         ReceiptAggregateVoucher {
             allocation_id,
             timestamp_ns,
