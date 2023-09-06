@@ -11,13 +11,18 @@ use alloy_sol_types::Eip712Domain;
 use log::error;
 use sqlx::PgPool;
 use tap::{
-    core::tap_receipt::ReceiptCheck, escrow_adapter::EscrowAdapter,
-    rav_storage_adapter::RAVStorageAdapter, receipt_checks_adapter::ReceiptChecksAdapter,
+    core::{tap_manager::SignedReceipt, tap_receipt::ReceiptCheck},
+    escrow_adapter::EscrowAdapter,
+    rav_storage_adapter::RAVStorageAdapter,
+    receipt_checks_adapter::ReceiptChecksAdapter,
     receipt_storage_adapter::ReceiptStorageAdapter,
 };
 use tokio::sync::RwLock;
 
-use crate::allocation_monitor;
+use crate::{allocation_monitor, query_processor::QueryError};
+
+// All other checks are to be done out of band, when requesting a RAV
+static INBAND_RECEIPT_CHECKS: &[ReceiptCheck] = &[ReceiptCheck::CheckSignature];
 
 type Manager = tap::core::tap_manager::Manager<
     EscrowAdapter,
@@ -26,8 +31,6 @@ type Manager = tap::core::tap_manager::Manager<
     RAVStorageAdapter,
 >;
 
-// TODO: Have this implement the allocation_ids storage and updates. This should also
-//       maintain a hashmap of Monitor instances, keyed by allocation_id.
 #[derive(Clone, Debug)]
 pub struct TapManager {
     inner: Arc<TapManagerInner>,
@@ -62,7 +65,6 @@ impl TapManager {
         pgpool: PgPool,
         allocation_monitor: allocation_monitor::AllocationMonitor,
         domain_separator: Eip712Domain,
-        _required_checks: Vec<ReceiptCheck>,
         _starting_min_timestamp_ns: u64,
     ) -> Self {
         let eligible_allocations = Arc::new(RwLock::new(HashSet::new()));
@@ -123,12 +125,12 @@ impl TapManager {
                         inner.eligible_allocations.clone(),
                         inner.escrow_adapter.clone(),
                     ),
-                    RAVStorageAdapter::new(inner.pgpool.clone(), *allocation_id).await?,
-                    ReceiptStorageAdapter::new(inner.pgpool.clone(), *allocation_id),
-                    vec![],
-                    42,
+                    RAVStorageAdapter::new(inner.pgpool.clone(), allocation_id.clone()).await?,
+                    ReceiptStorageAdapter::new(inner.pgpool.clone(), allocation_id.clone()),
+                    INBAND_RECEIPT_CHECKS.to_vec(),
+                    0, // We don't care about min_timestamp, since we're not checking timestamps in indexer-service
                 );
-                managers_write.insert(*allocation_id, manager);
+                managers_write.insert(allocation_id.clone(), manager);
             }
         }
 
@@ -156,5 +158,33 @@ impl TapManager {
                 }
             }
         }
+    }
+
+    pub async fn verify_and_store_receipt(&self, receipt: SignedReceipt) -> Result<(), QueryError> {
+        let allocation_id = receipt.message.allocation_id;
+        let managers_read = self.inner.managers.read().await;
+        let manager = {
+            managers_read.get(&allocation_id).ok_or_else(|| {
+                QueryError::Other(anyhow::anyhow!(
+                    "No TAP manager found for allocation id {}",
+                    allocation_id
+                ))
+            })?
+        };
+
+        // We ignore query_id since we're not checking query appraisals in indexer-service
+        let query_id = 0;
+
+        manager
+            .verify_and_store_receipt(receipt, query_id, INBAND_RECEIPT_CHECKS.to_vec())
+            .await
+            .map_err(|e| {
+                QueryError::Other(anyhow::anyhow!(
+                    "Error verifying and storing receipt: {}",
+                    e
+                ))
+            })?;
+
+        Ok(())
     }
 }

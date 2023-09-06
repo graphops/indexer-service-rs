@@ -12,9 +12,8 @@ use axum::{
 };
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
-use eip_712_derive::DomainSeparator;
+
 use ethereum_types::U256;
-use ethers_core::types::transaction::eip712;
 
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
@@ -129,20 +128,19 @@ async fn main() -> Result<(), std::io::Error> {
             version: "1",
             verifying_contract: config.ethereum.indexer_address,
         },
-        vec![],
-        42
+        42,
     );
 
     // Proper initiation of server, query processor
     // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(graph_node.clone(), attestation_signers.clone(), tap_manager);
+    let query_processor =
+        QueryProcessor::new(graph_node.clone(), attestation_signers.clone(), tap_manager);
 
     // Start indexer service basic metrics
     tokio::spawn(handle_serve_metrics(
         String::from("0.0.0.0"),
         config.indexer_infrastructure.metrics_port,
     ));
-
 
     let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(

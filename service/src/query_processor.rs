@@ -1,7 +1,6 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use alloy_primitives::Address;
 use ethers_core::types::{Signature, U256};
 use log::error;
 use native::attestation::AttestationSigner;
@@ -72,12 +71,12 @@ impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
         attestation_signers: AttestationSigners,
-        tap_manager: TapManager
+        tap_manager: TapManager,
     ) -> QueryProcessor {
         QueryProcessor {
             graph_node,
             attestation_signers,
-            tap_manager
+            tap_manager,
         }
     }
 
@@ -111,9 +110,11 @@ impl QueryProcessor {
             .map_err(|e| QueryError::Other(anyhow::Error::from(e)))?;
 
         // Conversion from alloy_primitives::Address to ethereum_types::Address
-        let allocation_id = Address::from_slice(parsed_receipt.message.allocation_id.as_slice());
+        let allocation_id = parsed_receipt.message.allocation_id;
 
-        // TODO: Handle the TAP receipt
+        self.tap_manager
+            .verify_and_store_receipt(parsed_receipt)
+            .await?;
 
         let signers = self.attestation_signers.read().await;
         let signer = signers.get(&allocation_id).ok_or_else(|| {
@@ -157,6 +158,7 @@ impl QueryProcessor {
 
 #[cfg(test)]
 mod tests {
+    use alloy_primitives::Address;
     use hex_literal::hex;
     use std::str::FromStr;
 
