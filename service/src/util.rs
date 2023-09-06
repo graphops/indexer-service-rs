@@ -1,13 +1,12 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethereum_types::Address;
-use ethereum_types::U256;
+use alloy_primitives::Address;
 use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-
+use ethers_core::types::U256;
 use native::attestation::AttestationSigner;
 use serde::Serialize;
 use std::collections::HashMap;

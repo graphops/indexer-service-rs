@@ -1,7 +1,7 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use ethereum_types::Address;
+use alloy_primitives::Address;
 use ethers_core::types::{Signature, U256};
 use log::error;
 use native::attestation::AttestationSigner;
@@ -11,6 +11,7 @@ use tap::core::tap_manager::SignedReceipt;
 use crate::attestation_signers::AttestationSigners;
 use crate::common::types::SubgraphDeploymentID;
 use crate::graph_node::GraphNodeInstance;
+use crate::tap_manager::TapManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -64,16 +65,19 @@ pub enum QueryError {
 pub struct QueryProcessor {
     graph_node: GraphNodeInstance,
     attestation_signers: AttestationSigners,
+    tap_manager: TapManager,
 }
 
 impl QueryProcessor {
     pub fn new(
         graph_node: GraphNodeInstance,
         attestation_signers: AttestationSigners,
+        tap_manager: TapManager
     ) -> QueryProcessor {
         QueryProcessor {
             graph_node,
             attestation_signers,
+            tap_manager
         }
     }
 
@@ -153,10 +157,8 @@ impl QueryProcessor {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use ethereum_types::Address;
     use hex_literal::hex;
+    use std::str::FromStr;
 
     use crate::{
         common::allocation::{allocation_signer, Allocation, AllocationStatus, SubgraphDeployment},

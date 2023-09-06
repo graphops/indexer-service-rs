@@ -3,18 +3,19 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::Address;
 use async_trait::async_trait;
-use log::warn;
+use thiserror::Error;
+
 use tap_core::adapters::escrow_adapter::EscrowAdapter as EscrowAdapterTrait;
 use tokio::sync::RwLock;
 
 /// This is Arc internally, so it can be cloned and shared between threads.
-#[derive(Clone)]
+#[cfg_attr(test, faux::create)]
+#[derive(Clone, Debug)]
 pub struct EscrowAdapter {
     gateway_escrow_balance: Arc<RwLock<HashMap<Address, u128>>>,
     gateway_pending_fees: Arc<RwLock<HashMap<Address, u128>>>,
 }
 
-use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AdapterError {
     #[error("something went wrong: {error}")]
@@ -22,7 +23,7 @@ pub enum AdapterError {
 }
 
 // TODO: Implement escrow subgraph polling.
-
+#[cfg_attr(test, faux::methods)]
 impl EscrowAdapter {
     pub fn new() -> Self {
         Self {
@@ -39,11 +40,19 @@ impl EscrowAdapter {
     }
 }
 
+#[cfg_attr(test, faux::methods)]
+impl Default for EscrowAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg_attr(test, faux::methods)]
 #[async_trait]
 impl EscrowAdapterTrait for EscrowAdapter {
     type AdapterError = AdapterError;
 
-    async fn get_available_escrow(&self, gateway_id: Address) -> Result<u128, Self::AdapterError> {
+    async fn get_available_escrow(&self, gateway_id: Address) -> Result<u128, AdapterError> {
         let balance = self
             .gateway_escrow_balance
             .read()
@@ -74,11 +83,7 @@ impl EscrowAdapterTrait for EscrowAdapter {
         Ok(balance - fees)
     }
 
-    async fn subtract_escrow(
-        &self,
-        gateway_id: Address,
-        value: u128,
-    ) -> Result<(), Self::AdapterError> {
+    async fn subtract_escrow(&self, gateway_id: Address, value: u128) -> Result<(), AdapterError> {
         let current_available_escrow = self.get_available_escrow(gateway_id).await?;
 
         let mut fees_write = self.gateway_pending_fees.write().await;
@@ -121,7 +126,7 @@ mod test {
         let gateway_escrow_balance = Arc::new(RwLock::new(HashMap::new()));
         let gateway_pending_fees = Arc::new(RwLock::new(HashMap::new()));
 
-        let adapter = EscrowAdapter {
+        let adapter = _FauxOriginal_EscrowAdapter {
             gateway_escrow_balance: gateway_escrow_balance.clone(),
             gateway_pending_fees: gateway_pending_fees.clone(),
         };
@@ -150,7 +155,7 @@ mod test {
         let gateway_escrow_balance = Arc::new(RwLock::new(HashMap::new()));
         let gateway_pending_fees = Arc::new(RwLock::new(HashMap::new()));
 
-        let adapter = EscrowAdapter {
+        let adapter = _FauxOriginal_EscrowAdapter {
             gateway_escrow_balance: gateway_escrow_balance.clone(),
             gateway_pending_fees: gateway_pending_fees.clone(),
         };

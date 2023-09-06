@@ -1,6 +1,8 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloy_primitives::Address;
+use alloy_sol_types::eip712_domain;
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::{
     error_handling::HandleErrorLayer,
@@ -10,7 +12,9 @@ use axum::{
 };
 use axum::{routing::post, Extension, Router, Server};
 use dotenvy::dotenv;
-use ethereum_types::{Address, U256};
+use eip_712_derive::DomainSeparator;
+use ethereum_types::U256;
+use ethers_core::types::transaction::eip712;
 
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tower::{BoxError, ServiceBuilder};
@@ -107,16 +111,6 @@ async fn main() -> Result<(), std::io::Error> {
         Address::from_str("0xdeadbeefcafebabedeadbeefcafebabedeadbeef").unwrap(),
     );
 
-    // Proper initiation of server, query processor
-    // server health check, graph-node instance connection check
-    let query_processor = QueryProcessor::new(graph_node.clone(), attestation_signers.clone());
-
-    // Start indexer service basic metrics
-    tokio::spawn(handle_serve_metrics(
-        String::from("0.0.0.0"),
-        config.indexer_infrastructure.metrics_port,
-    ));
-
     // Establish Database connection necessary for serving indexer management
     // requests with defined schema
     // Note: Typically, you'd call `sqlx::migrate!();` here to sync the models
@@ -125,6 +119,31 @@ async fn main() -> Result<(), std::io::Error> {
     // agent. Hence we leave syncing and migrating entirely to the agent and
     // assume the models are up to date in the service.
     let database = database::connect(&config.postgres).await;
+
+    let tap_manager = tap_manager::TapManager::new(
+        database.clone(),
+        allocation_monitor.clone(),
+        // TODO: arguments for eip712_domain should be a config
+        eip712_domain! {
+            name: "TapManager",
+            version: "1",
+            verifying_contract: config.ethereum.indexer_address,
+        },
+        vec![],
+        42
+    );
+
+    // Proper initiation of server, query processor
+    // server health check, graph-node instance connection check
+    let query_processor = QueryProcessor::new(graph_node.clone(), attestation_signers.clone(), tap_manager);
+
+    // Start indexer service basic metrics
+    tokio::spawn(handle_serve_metrics(
+        String::from("0.0.0.0"),
+        config.indexer_infrastructure.metrics_port,
+    ));
+
+
     let indexer_management_client = IndexerManagementClient::new(database).await;
     let service_options = ServerOptions::new(
         Some(config.indexer_infrastructure.port),

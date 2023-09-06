@@ -11,6 +11,7 @@ use tap_core::tap_manager::SignedRAV;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
+#[derive(Debug)]
 pub struct RAVStorageAdapter {
     pgpool: PgPool,
     local_rav_storage: Arc<RwLock<Option<SignedRAV>>>,

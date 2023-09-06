@@ -13,6 +13,7 @@ use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as Receip
 use tap_core::tap_receipt::ReceivedReceipt;
 use thiserror::Error;
 
+#[derive(Debug)]
 pub struct ReceiptStorageAdapter {
     pgpool: PgPool,
     allocation_id: Address,

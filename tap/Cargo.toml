@@ -19,4 +19,5 @@ tokio = { version = "1.29.1", features = ["rt"] }
 
 [dev-dependencies]
 ethers-signers = "2.0.8"
+faux = "0.1.10"
 rstest = "0.18.1"

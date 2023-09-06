@@ -14,25 +14,28 @@ use tap_core::{eip_712_signed_message::EIP712SignedMessage, tap_receipt::Receipt
 use thiserror::Error;
 use tokio::sync::RwLock;
 
+use crate::escrow_adapter::EscrowAdapter;
+
+#[derive(Debug)]
 pub struct ReceiptChecksAdapter {
     pgpool: PgPool,
-    query_appraisals: Arc<RwLock<HashMap<u64, u128>>>,
+    query_appraisals: Option<Arc<RwLock<HashMap<u64, u128>>>>,
     allocation_ids: Arc<RwLock<HashSet<Address>>>,
-    gateway_ids: Arc<RwLock<HashSet<Address>>>,
+    escrow_adapter: EscrowAdapter,
 }
 
 impl ReceiptChecksAdapter {
     pub fn new(
         pgpool: PgPool,
-        query_appraisals: Arc<RwLock<HashMap<u64, u128>>>,
+        query_appraisals: Option<Arc<RwLock<HashMap<u64, u128>>>>,
         allocation_ids: Arc<RwLock<HashSet<Address>>>,
-        gateway_ids: Arc<RwLock<HashSet<Address>>>,
+        escrow_adapter: EscrowAdapter,
     ) -> Self {
         Self {
             pgpool,
             query_appraisals,
             allocation_ids,
-            gateway_ids,
+            escrow_adapter,
         }
     }
 }
@@ -52,7 +55,6 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
         receipt: &EIP712SignedMessage<Receipt>,
         receipt_id: u64,
     ) -> Result<bool, Self::AdapterError> {
-        // TODO: Proper error handling - requires changes in TAP Core
         let record = sqlx::query!(
             r#"
                 SELECT id
@@ -78,16 +80,17 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
         &self,
         allocation_id: Address,
     ) -> Result<bool, Self::AdapterError> {
-        // TODO: Proper error handling - requires changes in TAP Core
         let allocation_ids = self.allocation_ids.read().await;
         Ok(allocation_ids.contains(&allocation_id))
     }
 
     async fn is_valid_value(&self, value: u128, query_id: u64) -> Result<bool, Self::AdapterError> {
-        // TODO: Proper error handling - requires changes in TAP Core
-        let query_appraisals = self.query_appraisals.read().await;
+        let query_appraisals = self.query_appraisals.as_ref().expect(
+            "Query appraisals should be initialized. The opposite should never happen when receipts value checking is enabled."
+        );
+        let query_appraisals_read = query_appraisals.read().await;
         let appraised_value =
-            query_appraisals
+            query_appraisals_read
                 .get(&query_id)
                 .ok_or_else(|| AdapterError::AdapterError {
                     error: "No appraised value found for query".to_string(),
@@ -100,8 +103,7 @@ impl ReceiptChecksAdapterTrait for ReceiptChecksAdapter {
     }
 
     async fn is_valid_gateway_id(&self, gateway_id: Address) -> Result<bool, Self::AdapterError> {
-        let gateway_ids = self.gateway_ids.read().await;
-        Ok(gateway_ids.contains(&gateway_id))
+        Ok(self.escrow_adapter.is_valid_gateway_id(gateway_id).await)
     }
 }
 
@@ -110,8 +112,10 @@ mod test {
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
 
+    use faux::when;
     use tap_core::adapters::receipt_storage_adapter::ReceiptStorageAdapter as ReceiptStorageAdapterTrait;
 
+    use crate::escrow_adapter;
     use crate::receipt_storage_adapter::ReceiptStorageAdapter;
     use crate::test_utils::{create_received_receipt, keys};
 
@@ -127,15 +131,18 @@ mod test {
 
         let query_appraisals: Arc<RwLock<HashMap<u64, u128>>> =
             Arc::new(RwLock::new(HashMap::new()));
-        let gateway_ids = Arc::new(RwLock::new(HashSet::new()));
-        gateway_ids.write().await.insert(address);
+
+        let gateway_escrow_balance = Arc::new(RwLock::new(HashMap::new()));
+        gateway_escrow_balance.write().await.insert(address, 10000);
+        let mut escrow_adapter = escrow_adapter::EscrowAdapter::faux();
+        when!(escrow_adapter.is_valid_gateway_id(address)).then_return(true);
 
         let rav_storage_adapter = ReceiptStorageAdapter::new(pgpool.clone(), allocation_id);
         let receipt_checks_adapter = ReceiptChecksAdapter::new(
             pgpool.clone(),
-            query_appraisals,
+            Some(query_appraisals),
             allocation_ids,
-            gateway_ids,
+            escrow_adapter,
         );
 
         // Insert 3 unique receipts
