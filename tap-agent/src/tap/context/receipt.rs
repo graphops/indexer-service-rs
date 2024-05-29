@@ -11,7 +11,7 @@ use alloy_primitives::hex::ToHex;
 use bigdecimal::{num_bigint::ToBigInt, ToPrimitive};
 use sqlx::{postgres::types::PgRange, types::BigDecimal};
 use tap_core::{
-    manager::adapters::{safe_truncate_receipts, ReceiptDelete, ReceiptRead},
+    manager::adapters::{ReceiptDelete, ReceiptRead},
     receipt::{Checking, Receipt, ReceiptWithState, SignedReceipt},
 };
 use thegraph::types::Address;
@@ -91,23 +91,53 @@ impl ReceiptRead for TapAgentContext {
 
         let records = sqlx::query!(
             r#"
-                SELECT id, signature, allocation_id, timestamp_ns, nonce, value
-                FROM scalar_tap_receipts
-                WHERE allocation_id = $1 AND signer_address IN (SELECT unnest($2::text[]))
-                AND $3::numrange @> timestamp_ns
-                ORDER BY timestamp_ns ASC
-                LIMIT $4
+                WITH receipt_counts AS (
+                    SELECT
+                        id,
+                        signature,
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value,
+                        COUNT(*) OVER (PARTITION BY timestamp_ns) AS timestamp_count
+                    FROM scalar_tap_receipts
+                    WHERE
+                        allocation_id = $1
+                        AND signer_address IN (
+                            SELECT unnest($2::text[])
+                        )
+                        AND $3::numrange @> timestamp_ns
+                ),
+                receipts_with_running_total AS (
+                    SELECT
+                        id,
+                        signature,
+                        allocation_id,
+                        timestamp_ns,
+                        nonce,
+                        value,
+                        SUM(timestamp_count) OVER (ORDER BY timestamp_ns ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total
+                    FROM
+                        receipt_counts
+                )
+                SELECT
+                    *
+                FROM
+                    receipts_with_running_total
+                WHERE
+                    running_total <= $4
             "#,
             self.allocation_id.encode_hex::<String>(),
             &signers,
             rangebounds_to_pgrange(timestamp_range_ns),
-            (receipts_limit + 1) as i64,
+            receipts_limit as i64,
         )
         .fetch_all(&self.pgpool)
         .await?;
-        let mut receipts = records
+        let receipts = records
             .into_iter()
             .map(|record| {
+                println!("{:?}", record);
                 let signature = record.signature.as_slice().try_into()
                     .map_err(|e| AdapterError::ReceiptRead {
                         error: format!(
@@ -154,7 +184,7 @@ impl ReceiptRead for TapAgentContext {
             })
             .collect::<Result<Vec<ReceiptWithState<Checking>>, AdapterError>>()?;
 
-        safe_truncate_receipts(&mut receipts, receipts_limit);
+        // safe_truncate_receipts(&mut receipts, receipts_limit);
 
         Ok(receipts)
     }
@@ -487,7 +517,7 @@ mod test {
         }
 
         let recovered_received_receipt_vec = storage_adapter
-            .retrieve_receipts_in_timestamp_range(0..141, Some(10))
+            .retrieve_receipts_in_timestamp_range(0..141, Some(100))
             .await
             .unwrap();
         assert_eq!(recovered_received_receipt_vec.len(), 9);
