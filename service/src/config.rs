@@ -11,13 +11,36 @@ use figment::{
 use indexer_common::indexer_service::http::IndexerServiceConfig;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub common: IndexerServiceConfig,
 }
 
 impl Config {
     pub fn load(filename: &PathBuf) -> Result<Self> {
+        let config_defaults: &str = r##"
+            [common.server]
+            host_and_port = "0.0.0.0:7600"
+            metrics_host_and_port = "0.0.0.0:7300"
+            url_prefix = "/"
+
+            [common.network_subgraph]
+            serve_subgraph = false
+            syncing_interval = 60
+            recently_closed_allocation_buffer_seconds = 3600
+
+            [common.escrow_subgraph]
+            serve_subgraph = false
+            syncing_interval = 60
+            recently_closed_allocation_buffer_seconds = 3600
+
+            [common.graph_network]
+            id = 1
+
+            [common.scalar]
+            timestamp_error_tolerance = 30
+        "##;
+
         let config_str = std::fs::read_to_string(filename)?;
 
         // Remove TOML comments, so that we can have shell expansion examples in the file.
@@ -28,7 +51,9 @@ impl Config {
             .join("\n");
 
         let config_str = shellexpand::env(&config_str)?;
+
         Figment::new()
+            .merge(Toml::string(config_defaults))
             .merge(Toml::string(&config_str))
             .extract()
             .map_err(|e| e.into())
@@ -57,13 +82,13 @@ mod test {
         // Generate full config by deserializing the minimal config and let the code fill in the defaults.
         let max_config = Config::load(&PathBuf::from("minimal-config-example.toml")).unwrap();
         // Deserialize the full config example file
-        let max_config_file: toml::Value = toml::from_str(
+        let max_config_file: Config = toml::from_str(
             fs::read_to_string("maximal-config-example.toml")
                 .unwrap()
                 .as_str(),
         )
         .unwrap();
 
-        assert_eq!(toml::Value::try_from(max_config).unwrap(), max_config_file);
+        assert_eq!(max_config, max_config_file);
     }
 }
