@@ -1,11 +1,11 @@
 // Copyright 2023-, GraphOps and Semiotic Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::tap::checks::allocation_eligible::AllocationEligible;
-use crate::tap::checks::deny_list_check::DenyListCheck;
-use crate::tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
-use crate::tap::checks::sender_balance_check::SenderBalanceCheck;
-use crate::tap::checks::timestamp_check::TimestampCheck;
+use crate::scalar_tap::checks::allocation_eligible::AllocationEligible;
+use crate::scalar_tap::checks::deny_list_check::DenyListCheck;
+use crate::scalar_tap::checks::receipt_max_val_check::ReceiptMaxValueCheck;
+use crate::scalar_tap::checks::sender_balance_check::SenderBalanceCheck;
+use crate::scalar_tap::checks::timestamp_check::TimestampCheck;
 use crate::{escrow_accounts::EscrowAccounts, prelude::Allocation};
 use alloy_sol_types::Eip712Domain;
 use eventuals::Eventual;

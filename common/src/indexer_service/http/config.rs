@@ -40,7 +40,7 @@ pub struct IndexerServiceConfig {
     pub network_subgraph: SubgraphConfig,
     pub escrow_subgraph: SubgraphConfig,
     pub graph_network: GraphNetworkConfig,
-    pub scalar: ScalarConfig,
+    pub scalar_tap: ScalarTapConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -62,7 +62,7 @@ pub struct IndexerConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ScalarConfig {
+pub struct ScalarTapConfig {
     pub chain_id: u64,
     pub receipts_verifier_address: Address,
     pub timestamp_error_tolerance: u64,

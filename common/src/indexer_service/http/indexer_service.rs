@@ -44,7 +44,7 @@ use crate::{
         attestation_signers, dispute_manager, escrow_accounts, indexer_allocations,
         AttestationSigner, DeploymentDetails, SubgraphClient,
     },
-    tap::IndexerTapContext,
+    scalar_tap::IndexerTapContext,
 };
 
 use super::{request_handler::request_handler, IndexerServiceConfig};
@@ -285,15 +285,15 @@ impl IndexerService {
         let domain_separator = eip712_domain! {
             name: "TAP",
             version: "1",
-            chain_id: options.config.scalar.chain_id,
-            verifying_contract: options.config.scalar.receipts_verifier_address,
+            chain_id: options.config.scalar_tap.chain_id,
+            verifying_contract: options.config.scalar_tap.receipts_verifier_address,
         };
         let indexer_context =
             IndexerTapContext::new(database.clone(), domain_separator.clone()).await;
         let timestamp_error_tolerance =
-            Duration::from_secs(options.config.scalar.timestamp_error_tolerance);
+            Duration::from_secs(options.config.scalar_tap.timestamp_error_tolerance);
 
-        let receipt_max_value = options.config.scalar.receipt_max_value;
+        let receipt_max_value = options.config.scalar_tap.receipt_max_value;
 
         let checks = IndexerTapContext::get_checks(
             database,
