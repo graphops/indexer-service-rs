@@ -11,8 +11,14 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
+use http::Request;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
-use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
+use jsonrpsee::{
+    core::client::ClientT,
+    http_client::{HeaderMap, HttpClientBuilder},
+    rpc_params,
+    ws_client::HeaderValue,
+};
 use prometheus::{
     register_counter, register_counter_vec, register_gauge_vec, register_histogram_vec, Counter,
     CounterVec, GaugeVec, HistogramVec,
@@ -43,6 +49,8 @@ use crate::{
     tap::signers_trimmed,
     tap::{context::checks::AllocationId, escrow_adapter::EscrowAdapter},
 };
+
+use tower_http::compression::CompressionLayer;
 
 lazy_static! {
     static ref UNAGGREGATED_FEES: GaugeVec = register_gauge_vec!(
@@ -467,24 +475,29 @@ impl SenderAllocationState {
             // TODO: consider doing that in a spawned task?
             Self::store_invalid_receipts(self, invalid_receipts.as_slice()).await?;
         }
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Encoding", HeaderValue::from_static("gzip"));
+
+        let middleware = tower::ServiceBuilder::new().layer(CompressionLayer::new().gzip(true));
         let client = HttpClientBuilder::default()
+            .set_headers(headers)
+            //.set_http_middleware(Compression::new(tower::ServiceBuilder::new()).gzip(true))
+            .set_http_middleware(middleware)
             .request_timeout(Duration::from_secs(
                 self.config.tap.rav_request_timeout_secs,
             ))
             .build(&self.sender_aggregator_endpoint)?;
+
         let rav_response_time_start = Instant::now();
         let response: JsonRpcResponse<EIP712SignedMessage<ReceiptAggregateVoucher>> = client
             .request(
                 "aggregate_receipts",
-                rpc_params!(
-                    "0.0", // TODO: Set the version in a smarter place.
-                    valid_receipts,
-                    previous_rav
-                ),
+                rpc_params!("0.0", valid_receipts, previous_rav),
             )
             .await?;
-
         let rav_response_time = rav_response_time_start.elapsed();
+        println!("Time it took {}", rav_response_time.as_secs_f64());
         RAV_RESPONSE_TIME
             .with_label_values(&[&self.sender.to_string()])
             .observe(rav_response_time.as_secs_f64());
@@ -903,6 +916,69 @@ mod tests {
         let last_message_emitted = last_message_emitted.lock().unwrap();
         assert_eq!(last_message_emitted.len(), 2);
         assert_eq!(last_message_emitted.last(), Some(&expected_message));
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_compression(pgpool: PgPool) {
+        tracing_subscriber::fmt::init();
+        // Start a TAP aggregator server.
+        let (handle, aggregator_endpoint) = run_server(
+            0,
+            SIGNER.0.clone(),
+            vec![SIGNER.1].into_iter().collect(),
+            TAP_EIP712_DOMAIN_SEPARATOR.clone(),
+            100 * 1024,
+            100 * 1024,
+            1,
+        )
+        .await
+        .unwrap();
+
+        //let a = ServerBuilder::new().custom_tokio_runtime(handle);
+
+        // Start a mock graphql server using wiremock
+        let mock_server = MockServer::start().await;
+        // Mock result for TAP redeem txs for (allocation, sender) pair.
+        mock_server
+            .register(
+                Mock::given(method("POST"))
+                    .and(body_string_contains("transactions"))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({ "data": { "transactions": []}})),
+                    ),
+            )
+            .await;
+
+        // Add receipts to the database.
+        for i in 0..10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i + 1, i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
+
+        // Create a sender_allocation.
+        let sender_allocation = create_sender_allocation(
+            pgpool.clone(),
+            "http://".to_owned() + &aggregator_endpoint.to_string(),
+            &mock_server.uri(),
+            None,
+        )
+        .await;
+
+        // Trigger a RAV request manually and wait for updated fees.
+        let (total_unaggregated_fees, _rav) = call!(
+            sender_allocation,
+            SenderAllocationMessage::TriggerRAVRequest
+        )
+        .unwrap();
+
+        assert_eq!(total_unaggregated_fees.value, 0u128);
+
+        // Stop the TAP aggregator server.
+        handle.stop().unwrap();
+        handle.stopped().await;
     }
 
     #[sqlx::test(migrations = "../migrations")]
