@@ -11,7 +11,6 @@ use alloy_sol_types::Eip712Domain;
 use anyhow::{anyhow, ensure, Result};
 use bigdecimal::num_bigint::BigInt;
 use eventuals::Eventual;
-use http::Request;
 use indexer_common::{escrow_accounts::EscrowAccounts, prelude::SubgraphClient};
 use jsonrpsee::{
     core::client::ClientT,
