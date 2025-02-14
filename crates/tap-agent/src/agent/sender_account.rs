@@ -1701,21 +1701,20 @@ pub mod tests {
             .as_nanos() as u64
     }
 
-    #[rstest::rstest]
-    async fn test_update_receipt_fees_no_rav(
-        #[future(awt)] basic_sender_account: TestSenderAccount,
-    ) {
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
+        let (sender_account, _, prefix, _) = create_sender_account().pgpool(pgpool).call().await;
+
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
-            basic_sender_account.prefix,
+            prefix,
             SENDER.1,
             ALLOCATION_ID_0,
-            basic_sender_account.sender_account.clone(),
+            sender_account.clone(),
         )
         .await;
 
-        basic_sender_account
-            .sender_account
+        sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
