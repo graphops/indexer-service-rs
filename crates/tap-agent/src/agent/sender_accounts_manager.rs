@@ -1042,16 +1042,21 @@ mod tests {
     }
 
     #[rstest::rstest]
-    async fn test_pending_sender_allocations(
-        #[future(awt)] state: TestState,
-        #[future(awt)] pgpool: PgPool,
-        #[future(awt)] _receipts: (),
-    ) {
+    #[tokio::test]
+    async fn test_pending_sender_allocations(#[future(awt)] pgpool: PgPool) {
+        let (_, state) = create_state(pgpool.clone()).await;
+        // add receipts to the database
+        for i in 1..=10 {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
         // add non-final ravs
         let signed_rav = create_rav(ALLOCATION_ID_1, SIGNER.0.clone(), 4, 10);
         store_rav(&pgpool, signed_rav, SENDER.1).await.unwrap();
 
-        let pending_allocation_id = state.state.get_pending_sender_allocation_id_v1().await;
+        let pending_allocation_id = state.get_pending_sender_allocation_id_v1().await;
 
         // check if pending allocations are correct
         assert_eq!(pending_allocation_id.len(), 1);
@@ -1108,6 +1113,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_create_sender_account(
         #[future(awt)] state: TestState,
         #[future(awt)] supervisor: ActorRef<()>,
@@ -1132,13 +1138,13 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_deny_sender_account_on_failure(
         #[future(awt)] pgpool: PgPool,
-        #[future(awt)] state: TestState,
         #[future(awt)] supervisor: ActorRef<()>,
     ) {
+        let (_prefix, state) = create_state(pgpool.clone()).await;
         state
-            .state
             .create_or_deny_sender(
                 supervisor.get_cell(),
                 INDEXER.1,
@@ -1167,10 +1173,8 @@ mod tests {
     }
 
     #[rstest::rstest]
-    async fn test_receive_notifications(
-        #[future(awt)] pglistener: PgListener,
-        #[future(awt)] _receipts: (),
-    ) {
+    #[tokio::test]
+    async fn test_receive_notifications(#[future(awt)] pgpool: PgPool) {
         let prefix = generate_random_prefix();
         // create dummy allocation
 
@@ -1190,6 +1194,17 @@ mod tests {
         .await
         .unwrap();
 
+        // create tokio task to listen for notifications
+
+        let mut pglistener = PgListener::connect_with(&pgpool.clone()).await.unwrap();
+        pglistener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+            'scalar_tap_receipt_notification'",
+            );
+
         let escrow_accounts_rx = watch::channel(EscrowAccounts::new(
             HashMap::from([(SENDER.1, U256::from(1000))]),
             HashMap::from([(SENDER.1, vec![SIGNER.1])]),
@@ -1208,7 +1223,13 @@ mod tests {
 
         let receipts_count = 10;
 
-        // receipts added through fixture
+        // add receipts to the database
+        for i in 1..=receipts_count {
+            let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
+            store_receipt(&pgpool, receipt.signed_receipt())
+                .await
+                .unwrap();
+        }
 
         flush_messages(&notify).await;
 
@@ -1224,10 +1245,17 @@ mod tests {
     }
 
     #[rstest::rstest]
-    async fn test_manager_killed_in_database_connection(
-        #[future(awt)] pgpool: PgPool,
-        #[future(awt)] pglistener: PgListener,
-    ) {
+    #[tokio::test]
+    async fn test_manager_killed_in_database_connection(#[future(awt)] pgpool: PgPool) {
+        let mut pglistener = PgListener::connect_with(&pgpool).await.unwrap();
+        pglistener
+            .listen("scalar_tap_receipt_notification")
+            .await
+            .expect(
+                "should be able to subscribe to Postgres Notify events on the channel \
+                'scalar_tap_receipt_notification'",
+            );
+
         let escrow_accounts_rx = watch::channel(EscrowAccounts::default()).1;
         let dummy_actor = DummyActor::spawn().await;
 

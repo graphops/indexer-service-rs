@@ -3,6 +3,8 @@
 
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -392,41 +394,43 @@ pub async fn flush_messages(notify: &Notify) {
 
 /// Fixtures
 #[rstest::fixture]
-pub async fn pgpool() -> PgPool {
+pub fn pgpool() -> Pin<Box<dyn Future<Output = PgPool>>> {
     use sqlx::{
         testing::{TestArgs, TestSupport},
         ConnectOptions, Connection,
     };
-    let args = TestArgs {
-        test_path: stdext::function_name!(),
-        migrator: Some(&migrate!("../../migrations")),
-        fixtures: &[],
-    };
+    Box::pin(async {
+        let args = TestArgs {
+            test_path: stdext::function_name!(),
+            migrator: Some(&migrate!("../../migrations")),
+            fixtures: &[],
+        };
 
-    let test_context = Postgres::test_context(&args)
-        .await
-        .expect("failed to connect to setup test database");
-
-    let mut conn = test_context
-        .connect_opts
-        .connect()
-        .await
-        .expect("failed to connect to test database");
-
-    if let Some(migrator) = args.migrator {
-        migrator
-            .run_direct(&mut conn)
+        let test_context = Postgres::test_context(&args)
             .await
-            .expect("failed to apply migrations");
-    }
+            .expect("failed to connect to setup test database");
 
-    conn.close()
-        .await
-        .expect("failed to close setup connection");
+        let mut conn = test_context
+            .connect_opts
+            .connect()
+            .await
+            .expect("failed to connect to test database");
 
-    test_context
-        .pool_opts
-        .connect_with(test_context.connect_opts)
-        .await
-        .expect("failed to connect test pool")
+        if let Some(migrator) = args.migrator {
+            migrator
+                .run_direct(&mut conn)
+                .await
+                .expect("failed to apply migrations");
+        }
+
+        conn.close()
+            .await
+            .expect("failed to close setup connection");
+
+        test_context
+            .pool_opts
+            .connect_with(test_context.connect_opts)
+            .await
+            .expect("failed to connect test pool")
+    })
 }

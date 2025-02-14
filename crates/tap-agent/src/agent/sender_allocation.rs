@@ -1332,21 +1332,23 @@ pub mod tests {
     };
 
     #[rstest::fixture]
-    async fn mock_escrow_subgraph_server() -> MockServer {
-        let (mock_escrow_subgraph_server, _mock_ecrow_subgraph) = mock_escrow_subgraph().await;
-        mock_escrow_subgraph_server
+    async fn mock_escrow_subgraph_server() -> (MockServer, MockGuard) {
+        mock_escrow_subgraph().await
     }
 
     #[rstest::fixture]
     async fn state(
         #[future(awt)] pgpool: PgPool,
-        #[future(awt)] mock_escrow_subgraph_server: MockServer,
+        #[future(awt)] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) -> SenderAllocationState<Legacy> {
+        let (mock_escrow_subgraph_server, _mock_escrow_subgraph_guard) =
+            mock_escrow_subgraph_server;
         let args = create_sender_allocation_args()
             .pgpool(pgpool.clone())
             .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
             .call()
             .await;
+
         SenderAllocationState::new(args).await.unwrap()
     }
 
@@ -1453,9 +1455,10 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn should_update_unaggregated_fees_on_start(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] mock_escrow_subgraph_server: MockServer,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut last_message_emitted, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
@@ -1468,7 +1471,7 @@ pub mod tests {
 
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1497,9 +1500,10 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn should_return_invalid_receipts_on_startup(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] mock_escrow_subgraph_server: MockServer,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
         // Add receipts to the database.
@@ -1512,7 +1516,7 @@ pub mod tests {
 
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1547,16 +1551,18 @@ pub mod tests {
         // Check that the unaggregated fees are correct.
         assert_eq!(total_unaggregated_fees.value, 0u128);
     }
+
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_receive_new_receipt(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] mock_escrow_subgraph_server: MockServer,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         let (sender_allocation, notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1805,16 +1811,17 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_close_allocation_no_pending_fees(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] mock_escrow_subgraph_server: MockServer,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         let (mut message_receiver, sender_account) = create_mock_sender_account().await;
 
         // create allocation
         let (sender_allocation, _notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;
@@ -1906,10 +1913,18 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn should_return_unaggregated_fees_without_rav(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] state: SenderAllocationState<Legacy>,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .call()
+            .await;
+        let state = SenderAllocationState::new(args).await.unwrap();
+
         // Add receipts to the database.
         for i in 1..10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1926,10 +1941,18 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn should_calculate_invalid_receipts_fee(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] state: SenderAllocationState<Legacy>,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .call()
+            .await;
+        let state = SenderAllocationState::new(args).await.unwrap();
+
         // Add receipts to the database.
         for i in 1..10 {
             let receipt = create_received_receipt(&ALLOCATION_ID_0, &SIGNER.0, i, i, i.into());
@@ -1952,10 +1975,17 @@ pub mod tests {
     /// The sender_allocation should only consider receipts with a timestamp greater
     /// than the RAV's timestamp.
     #[rstest::rstest]
+    #[tokio::test]
     async fn should_return_unaggregated_fees_with_rav(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] state: SenderAllocationState<Legacy>,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
+        let args = create_sender_allocation_args()
+            .pgpool(pgpool.clone())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
+            .call()
+            .await;
+        let state = SenderAllocationState::new(args).await.unwrap();
         // Add the RAV to the database.
         // This RAV has timestamp 4. The sender_allocation should only consider receipts
         // with a timestamp greater than 4.
@@ -1977,6 +2007,7 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_store_failed_rav(#[future[awt]] state: SenderAllocationState<Legacy>) {
         let signed_rav = create_rav(ALLOCATION_ID_0, SIGNER.0.clone(), 4, 10);
 
@@ -1989,6 +2020,7 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_store_invalid_receipts(#[future[awt]] mut state: SenderAllocationState<Legacy>) {
         struct FailingCheck;
 
@@ -2031,6 +2063,7 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_mark_rav_last(#[future[awt]] state: SenderAllocationState<Legacy>) {
         // mark rav as final
         let result = state.mark_rav_last().await;
@@ -2040,9 +2073,10 @@ pub mod tests {
     }
 
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_failed_rav_request(
         #[future(awt)] pgpool: PgPool,
-        #[future[awt]] mock_escrow_subgraph_server: MockServer,
+        #[future[awt]] mock_escrow_subgraph_server: (MockServer, MockGuard),
     ) {
         // Add receipts to the database.
         for i in 0..10 {
@@ -2058,7 +2092,7 @@ pub mod tests {
         // Create a sender_allocation.
         let (sender_allocation, notify) = create_sender_allocation()
             .pgpool(pgpool.clone())
-            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.uri())
+            .escrow_subgraph_endpoint(&mock_escrow_subgraph_server.0.uri())
             .sender_account(sender_account)
             .call()
             .await;

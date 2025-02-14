@@ -62,7 +62,6 @@ pub async fn check_deployment_status(
 
 #[cfg(test)]
 mod tests {
-    use axum::error_handling::future;
     use reqwest::Url;
     use serde_json::json;
     use thegraph_core::deployment_id;

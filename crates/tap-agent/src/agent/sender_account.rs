@@ -1701,20 +1701,22 @@ pub mod tests {
             .as_nanos() as u64
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, _, prefix, _) = create_sender_account().pgpool(pgpool).call().await;
-
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_update_receipt_fees_no_rav(
+        #[future(awt)] basic_sender_account: TestSenderAccount,
+    ) {
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
-            prefix,
+            basic_sender_account.prefix,
             SENDER.1,
             ALLOCATION_ID_0,
-            sender_account.clone(),
+            basic_sender_account.sender_account.clone(),
         )
         .await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
@@ -1727,40 +1729,42 @@ pub mod tests {
         assert_not_triggered!(&triggered_rav_request);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, notify, prefix, _) =
-            create_sender_account().pgpool(pgpool).call().await;
-
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_update_receipt_fees_trigger_rav(
+        #[future(awt)] basic_sender_account: TestSenderAccount,
+    ) {
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
-            prefix,
+            basic_sender_account.prefix,
             SENDER.1,
             ALLOCATION_ID_0,
-            sender_account.clone(),
+            basic_sender_account.sender_account.clone(),
         )
         .await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&basic_sender_account.notify).await;
         assert_not_triggered!(&triggered_rav_request);
 
         // wait for it to be outside buffer
         tokio::time::sleep(BUFFER_DURATION).await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::Retry,
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&basic_sender_account.notify).await;
 
         assert_triggered!(&triggered_rav_request);
     }
@@ -1851,6 +1855,7 @@ pub mod tests {
 
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
     #[rstest::rstest]
+    #[tokio::test]
     async fn test_init_deny(#[future(awt)] pgpool: PgPool) {
         sqlx::query!(
             r#"
