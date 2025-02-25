@@ -1384,6 +1384,7 @@ pub mod tests {
     #![allow(missing_docs)]
     use std::{
         collections::{HashMap, HashSet},
+        sync::Arc,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
@@ -1392,10 +1393,11 @@ pub mod tests {
     use serde_json::json;
     use sqlx::PgPool;
     use test_assets::{
-        flush_messages, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
+        flush_messages, pgpool, ALLOCATION_ID_0, ALLOCATION_ID_1, TAP_SENDER as SENDER,
         TAP_SIGNER as SIGNER,
     };
     use thegraph_core::alloy::{hex::ToHexExt, primitives::U256};
+    use tokio::sync::Notify;
     use wiremock::{
         matchers::{body_string_contains, method},
         Mock, MockServer, ResponseTemplate,
@@ -1479,6 +1481,22 @@ pub mod tests {
                 )
                 .await;
         mock_escrow_subgraph_server
+    }
+    struct TestSenderAccount {
+        sender_account: ActorRef<SenderAccountMessage>,
+        notify: Arc<Notify>,
+        prefix: String,
+    }
+
+    #[rstest::fixture]
+    async fn basic_sender_account(#[future(awt)] pgpool: PgPool) -> TestSenderAccount {
+        let (sender_account, notify, prefix, _) =
+            create_sender_account().pgpool(pgpool.clone()).call().await;
+        TestSenderAccount {
+            sender_account,
+            notify,
+            prefix,
+        }
     }
 
     #[rstest::rstest]
@@ -1683,20 +1701,22 @@ pub mod tests {
             .as_nanos() as u64
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_update_receipt_fees_no_rav(pgpool: PgPool) {
-        let (sender_account, _, prefix, _) = create_sender_account().pgpool(pgpool).call().await;
-
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_update_receipt_fees_no_rav(
+        #[future(awt)] basic_sender_account: TestSenderAccount,
+    ) {
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
-            prefix,
+            basic_sender_account.prefix,
             SENDER.1,
             ALLOCATION_ID_0,
-            sender_account.clone(),
+            basic_sender_account.sender_account.clone(),
         )
         .await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE - 1, get_current_timestamp_u64_ns()),
@@ -1709,40 +1729,42 @@ pub mod tests {
         assert_not_triggered!(&triggered_rav_request);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_update_receipt_fees_trigger_rav(pgpool: PgPool) {
-        let (sender_account, notify, prefix, _) =
-            create_sender_account().pgpool(pgpool).call().await;
-
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_update_receipt_fees_trigger_rav(
+        #[future(awt)] basic_sender_account: TestSenderAccount,
+    ) {
         // create a fake sender allocation
         let (triggered_rav_request, _, _) = create_mock_sender_allocation(
-            prefix,
+            basic_sender_account.prefix,
             SENDER.1,
             ALLOCATION_ID_0,
-            sender_account.clone(),
+            basic_sender_account.sender_account.clone(),
         )
         .await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::NewReceipt(TRIGGER_VALUE, get_current_timestamp_u64_ns()),
             ))
             .unwrap();
 
-        flush_messages(&notify).await;
+        flush_messages(&basic_sender_account.notify).await;
         assert_not_triggered!(&triggered_rav_request);
 
         // wait for it to be outside buffer
         tokio::time::sleep(BUFFER_DURATION).await;
 
-        sender_account
+        basic_sender_account
+            .sender_account
             .cast(SenderAccountMessage::UpdateReceiptFees(
                 ALLOCATION_ID_0,
                 ReceiptFees::Retry,
             ))
             .unwrap();
-        flush_messages(&notify).await;
+        flush_messages(&basic_sender_account.notify).await;
 
         assert_triggered!(&triggered_rav_request);
     }
@@ -1832,8 +1854,9 @@ pub mod tests {
     }
 
     /// Test that the deny status is correctly loaded from the DB at the start of the actor
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_init_deny(pgpool: PgPool) {
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn test_init_deny(#[future(awt)] pgpool: PgPool) {
         sqlx::query!(
             r#"
                 INSERT INTO scalar_tap_denylist (sender_address)
